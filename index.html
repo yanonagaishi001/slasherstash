@@ -536,7 +536,20 @@ const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov
 const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const SKULL = '<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M32 6C18 6 9 16 9 29c0 8 4 13 8 16v8a3 3 0 0 0 3 3h24a3 3 0 0 0 3-3v-8c4-3 8-8 8-16C55 16 46 6 32 6Z"/><circle cx="23" cy="30" r="6"/><circle cx="41" cy="30" r="6"/><path d="M29 43l3-6 3 6ZM25 56v-6M32 56v-6M39 56v-6"/></svg>';
 const placeholder = (label = 'PHOTO SOON') => `<span class="ph">${SKULL}<span>${label}</span></span>`;
-const photoOf = (i, alt = '') => i.photo ? `<img src="${i.photo}" alt="${alt}">` : placeholder();
+/* Google Drive photos: try the most reliable address first, then fall back */
+const driveId = u => { const m = String(u || '').match(/(?:\/d\/|[?&]id=)([\w-]{20,})/); return m && /google(usercontent)?\.com/.test(u) ? m[1] : ''; };
+const photoOf = (i, alt = '') => {
+  if (!i.photo) return placeholder();
+  const id = driveId(i.photo);
+  return id ? `<img src="https://lh3.googleusercontent.com/d/${id}=w1200" data-gid="${id}" alt="${alt}">` : `<img src="${i.photo}" alt="${alt}">`;
+};
+document.addEventListener('error', e => {
+  const el = e.target; if (!el || el.tagName !== 'IMG' || !el.dataset.gid) return;
+  const id = el.dataset.gid, step = +(el.dataset.step || 0);
+  const alts = [`https://drive.google.com/thumbnail?id=${id}&sz=w1200`, `https://drive.google.com/uc?export=view&id=${id}`];
+  if (step < alts.length) { el.dataset.step = step + 1; el.src = alts[step]; }
+  else el.replaceWith(Object.assign(document.createElement('span'), { className: 'ph', innerHTML: SKULL + '<span>PHOTO SOON</span>' }));
+}, true);
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 let cart = {}, filter = 'all', query = '', sort = 'new', modalId = null;
 
