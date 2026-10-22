@@ -151,6 +151,8 @@ h2 { font-family: var(--display); font-weight: 400; font-size: clamp(42px, 6vw, 
 .stub::after { content: ""; position: absolute; top: 10px; bottom: 10px; right: -1px; border-right: 3px dotted var(--bg); }
 .stub .dow { font-size: 14px; letter-spacing: 3px; opacity: .85; }
 .stub .day { font-family: var(--display); font-weight: 400; font-size: 58px; letter-spacing: 1px; }
+.stub .day.range { font-size: 40px; white-space: nowrap; }
+.stub .days { margin-top: 4px; padding: 2px 6px; background: #fff; color: var(--pink); font-size: 12px; letter-spacing: 1.5px; }
 .stub .mon { font-size: 16px; letter-spacing: 3px; }
 .notch { position: absolute; left: 124px; width: 18px; height: 18px; border-radius: 50%; background: var(--bg); border: 1px solid var(--line); z-index: 1; }
 .notch.t { top: -10px; } .notch.b { bottom: -10px; }
@@ -319,6 +321,7 @@ body.cart-open, body.modal-open { overflow: hidden; }
   .ticket { grid-template-columns: 88px minmax(0, 1fr); }
   .notch { left: 79px; }
   .stub .day { font-size: 44px; }
+  .stub .day.range { font-size: 30px; }
   .ticket-main { padding: 16px 16px; }
   .ticket h3 { font-size: 21px; }
   .osd-tr, .osd-br { display: none; }
@@ -560,17 +563,28 @@ function pruneCart() { Object.keys(cart).forEach(id => { const i = INVENTORY.fin
 
 /* ---- events ---- */
 let upcoming = [];
-const findUpcoming = () => EVENTS.filter(e => e.date && new Date(e.date + 'T23:59') >= new Date()).sort((a, b) => a.date.localeCompare(b.date));
+const lastDay = e => (e.endDate && e.endDate > e.date ? e.endDate : e.date);
+const findUpcoming = () => EVENTS.filter(e => e.date && new Date(lastDay(e) + 'T23:59') >= new Date()).sort((a, b) => a.date.localeCompare(b.date));
+const dayCount = e => Math.round((new Date(lastDay(e) + 'T12:00') - new Date(e.date + 'T12:00')) / 86400000) + 1;
+/* "Oct 17" or "Oct 17 to 19" or "Oct 31 to Nov 2" */
+function dateLabel(e) {
+  const a = new Date(e.date + 'T12:00'), b = new Date(lastDay(e) + 'T12:00');
+  if (dayCount(e) === 1) return `${MONTHS[a.getMonth()]} ${a.getDate()}`;
+  return a.getMonth() === b.getMonth() ? `${MONTHS[a.getMonth()]} ${a.getDate()} to ${b.getDate()}` : `${MONTHS[a.getMonth()]} ${a.getDate()} to ${MONTHS[b.getMonth()]} ${b.getDate()}`;
+}
 function renderEvents() {
   if (!upcoming.length) { $('#events-list').innerHTML = '<li class="empty">No shows on the calendar yet. Follow us for the next one.</li>'; return; }
   $('#events-list').innerHTML = upcoming.map((e, n) => {
-    const d = new Date(e.date + 'T12:00');
+    const d = new Date(e.date + 'T12:00'), z = new Date(lastDay(e) + 'T12:00'), n2 = dayCount(e);
+    const stub = n2 === 1
+      ? `<span class="dow">${DAYS[d.getDay()]}</span><span class="day">${d.getDate()}</span><span class="mon">${MONTHS[d.getMonth()]}</span>`
+      : `<span class="dow">${DAYS[d.getDay()]}-${DAYS[z.getDay()]}</span><span class="day range">${d.getDate()}-${z.getDate()}</span><span class="mon">${MONTHS[d.getMonth()]}${z.getMonth() !== d.getMonth() ? '/' + MONTHS[z.getMonth()] : ''}</span><span class="days">${n2} days</span>`;
     return `
     <li class="ticket">
       <span class="notch t"></span><span class="notch b"></span>
-      <div class="stub"><span class="dow">${DAYS[d.getDay()]}</span><span class="day">${d.getDate()}</span><span class="mon">${MONTHS[d.getMonth()]}</span></div>
+      <div class="stub">${stub}</div>
       <div class="ticket-main">
-        <span class="admit">ADMIT ONE${e.start ? ' &middot; ' + fmt12(e.start) + (e.end && e.end !== e.start ? ' to ' + fmt12(e.end) : '') : ''}</span>
+        <span class="admit">ADMIT ONE${dayCount(e) > 1 ? ' &middot; ' + dateLabel(e).toUpperCase() : ''}${e.start ? ' &middot; ' + fmt12(e.start) + (e.end && e.end !== e.start ? ' to ' + fmt12(e.end) : '') + (dayCount(e) > 1 ? ' daily' : '') : ''}</span>
         <h3>${e.name}</h3>
         <p>${e.where}</p>
         ${e.tag ? `<span class="tag">${e.tag}</span>` : ''}
@@ -583,12 +597,13 @@ function renderEvents() {
   }).join('');
   $('#events-list').querySelectorAll('[data-ics]').forEach(b => b.onclick = () => downloadIcs(upcoming[+b.dataset.ics]));
   const next = upcoming[0], d = new Date(next.date + 'T12:00'), days = Math.ceil((d - new Date()) / 86400000);
+  const when = days <= 0 ? (dayCount(next) > 1 ? 'on now' : 'today') : days === 1 ? 'tomorrow' : 'in ' + days + ' days';
   $('#nextShow').hidden = false;
-  $('#nextShow').innerHTML = `Next show <strong>${days <= 0 ? 'today' : days === 1 ? 'tomorrow' : 'in ' + days + ' days'}</strong> &middot; ${next.name}`;
+  $('#nextShow').innerHTML = `Next show <strong>${when}</strong> &middot; ${next.name}`;
 }
 function downloadIcs(e) {
   const stamp = (d, t) => d.replace(/-/g, '') + 'T' + t.replace(':', '') + '00';
-  const ics = ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//The Slasher Stash//EN','BEGIN:VEVENT',`UID:${e.date}-${Math.random().toString(36).slice(2)}@slasherstash`,...(e.start ? [`DTSTART:${stamp(e.date,e.start)}`,`DTEND:${stamp(e.date,e.end || e.start)}`] : [`DTSTART;VALUE=DATE:${e.date.replace(/-/g, '')}`]),`SUMMARY:The Slasher Stash at ${e.name}`,`LOCATION:${e.where}`,`DESCRIPTION:${e.tag}`,'END:VEVENT','END:VCALENDAR'].join('\r\n');
+  const ics = ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//The Slasher Stash//EN','BEGIN:VEVENT',`UID:${e.date}-${Math.random().toString(36).slice(2)}@slasherstash`,...(e.start ? [`DTSTART:${stamp(e.date,e.start)}`,`DTEND:${stamp(e.date,e.end || e.start)}`, ...(dayCount(e) > 1 ? [`RRULE:FREQ=DAILY;COUNT=${dayCount(e)}`] : [])] : [`DTSTART;VALUE=DATE:${e.date.replace(/-/g, '')}`, `DTEND;VALUE=DATE:${(() => { const x = new Date(lastDay(e) + 'T12:00'); x.setDate(x.getDate() + 1); return isoDate(x.toISOString()); })().replace(/-/g, '')}`]),`SUMMARY:The Slasher Stash at ${e.name}`,`LOCATION:${e.where}`,`DESCRIPTION:${e.tag}`,'END:VEVENT','END:VCALENDAR'].join('\r\n');
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([ics], { type: 'text/calendar' })); a.download = 'slasher-stash-' + e.date + '.ics'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   toast('Calendar file saved');
 }
@@ -596,7 +611,7 @@ function downloadIcs(e) {
 /* ---- ticker: next show goes in automatically ---- */
 function renderTicker() {
   const items = [...TICKER];
-  if (upcoming[0]) { const d = new Date(upcoming[0].date + 'T12:00'); items.splice(1, 0, `Next show: ${upcoming[0].name}, ${MONTHS[d.getMonth()]} ${d.getDate()}`); }
+  if (upcoming[0]) items.splice(1, 0, `Next show: ${upcoming[0].name}, ${dateLabel(upcoming[0])}`);
   const html = items.map(t => `<span>${t}</span><span class="sep">&#9760;</span>`).join('');
   $('#ticker').innerHTML = html + html;
 }
@@ -841,7 +856,8 @@ function fromSheet(inv, shows, settings) {
   });
   const events = shows.filter(r => r['show name'] && isoDate(r.date)).map(r => {
     const start = time24(r.start), end = time24(r.end);
-    return { date: isoDate(r.date), start, end: end || start, name: esc(r['show name']), where: esc([r.venue, r.city].filter(Boolean).join(', ')), tag: esc(r.note) };
+    const date = isoDate(r.date), endDate = isoDate(r['end date']);
+    return { date, endDate: endDate > date ? endDate : '', start, end: end || start, name: esc(r['show name']), where: esc([r.venue, r.city].filter(Boolean).join(', ')), tag: esc(r.note) };
   });
   const val = k => (settings.find(r => r.setting && r.setting.toLowerCase() === k) || {}).value || '';
   const ticker = settings.filter(r => /^ticker$/i.test(r.setting) && r.value).map(r => esc(r.value));
